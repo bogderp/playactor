@@ -1,6 +1,6 @@
 {
   "name": "@bogderp/playactor",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "play around with your playstation devices (fork of dhleong/playactor with Remote Play standby and discovery fixes)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
