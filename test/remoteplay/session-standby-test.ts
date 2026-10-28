@@ -1,4 +1,5 @@
 import * as chai from "chai";
+import net from "net";
 import { Duplex } from "stream";
 import sinon from "sinon";
 
@@ -25,6 +26,7 @@ class SilentControlSocket extends Duplex {
 
     public get commands() {
         return this.written
+            .filter(data => !data.toString("latin1").startsWith("GET "))
             .filter(data => data.length >= 8)
             .map(data => data.readUInt16BE(4));
     }
@@ -47,6 +49,10 @@ class SilentControlSocket extends Duplex {
             // the console closes the connection as it goes to rest
             setImmediate(() => this.push(null));
         }
+    }
+
+    public setTimeout() {
+        return this;
     }
 
     public ref() {
@@ -82,14 +88,19 @@ describe("Remote Play session", () => {
         const serverType = serverCodec.encodeBuffer(Buffer.alloc(16, 0));
         const socket = new SilentControlSocket();
 
-        const request = sinon.stub(protocol, "request");
-        request.onFirstCall().resolves({
+        sinon.stub(protocol, "request").resolves({
             headers: { "rp-nonce": nonce.toString("base64") },
         } as any);
-        request.onSecondCall().resolves({
-            headers: { "rp-server-type": serverType.toString("base64") },
-            request: { socket },
-        } as any);
+        sinon.stub(net, "createConnection").callsFake(() => {
+            setImmediate(() => {
+                socket.emit("connect");
+                socket.push(Buffer.from(
+                    "HTTP/1.1 200 OK\r\n"
+                    + `RP-Server-Type: ${serverType.toString("base64")}\r\n\r\n`,
+                ));
+            });
+            return socket as unknown as net.Socket;
+        });
 
         const session = await openSession(device, {
             intent: ConnectionIntent.STANDBY,

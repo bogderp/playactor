@@ -74,10 +74,12 @@ export class UdpDiscoveryNetwork implements IDiscoveryNetwork {
         private readonly socket: dgram.Socket,
         private readonly port: number,
         private readonly version: DiscoveryVersion,
+        private readonly onMessage: (buffer: Buffer, rinfo: dgram.RemoteInfo) => void,
     ) {}
 
     public close() {
         debug("closing udp network");
+        this.socket.removeListener("message", this.onMessage);
         this.socketManager.release(this.boundPort);
     }
 
@@ -182,6 +184,7 @@ export class UdpDiscoveryNetworkFactory implements IDiscoveryNetworkFactory {
             socket,
             this.port,
             this.version,
+            onMessage,
         );
     }
 

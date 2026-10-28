@@ -73,6 +73,11 @@ export async function request(url: string, options: Options) {
     debug("combined request headers:", redact(headers));
 
     const result = await got(url, {
+        // NOTE: got's retry timer can fire after the request has already
+        // failed, throwing an uncatchable error that crashes the host
+        // process; session requests also change console state, so a
+        // blind retry is never what we want here anyway
+        retry: 0,
         ...options,
         headers,
         decompress: false,
