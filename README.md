@@ -3,6 +3,14 @@ playactor
 
 *play around with your playstation devices*
 
+> **Fork notice:** this is `@bogderp/playactor`, a fork of
+> [dhleong/playactor](https://github.com/dhleong/playactor) used by
+> `@bogderp/homebridge-playstation`. It adds the unmerged upstream PRs
+> [#71](https://github.com/dhleong/playactor/pull/71) (standby without a
+> Remote Play login) and [#72](https://github.com/dhleong/playactor/pull/72)
+> (control socket handover on modern Node.js), plus fixes for the UDP
+> discovery listener leak and a crash from `got` retries.
+
 ## What?
 
 playactor is a command line tool and node.js API for interacting with Sony

@@ -1,7 +1,7 @@
 {
-  "name": "playactor",
-  "version": "0.4.1",
-  "description": "play around with your playstation devices",
+  "name": "@bogderp/playactor",
+  "version": "0.5.0",
+  "description": "play around with your playstation devices (fork of dhleong/playactor with Remote Play standby and discovery fixes)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -28,14 +28,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dhleong/playactor.git"
+    "url": "git+https://github.com/bogderp/playactor.git"
   },
   "author": "Daniel Leong",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/dhleong/playactor/issues"
+    "url": "https://github.com/bogderp/playactor/issues"
   },
-  "homepage": "https://github.com/dhleong/playactor#readme",
+  "homepage": "https://github.com/bogderp/playactor#readme",
   "devDependencies": {
     "@sinonjs/fake-timers": "^7.0.5",
     "@types/chai": "^4.2.18",
@@ -71,5 +71,11 @@
     "ix": "^4.3.1",
     "node-rsa": "^1.1.1",
     "open": "^8.0.8"
+  },
+  "contributors": [
+    "Bogdan Pozderca"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
