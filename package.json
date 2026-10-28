@@ -24,7 +24,7 @@
     "remote"
   ],
   "bin": {
-    "playactor": "./dist/cli/index.js"
+    "playactor": "dist/cli/index.js"
   },
   "repository": {
     "type": "git",
