@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 import { signPublicKey, StreamKeyExchange } from "./crypto";
 import {
     encodeAudioHeader,
@@ -60,7 +62,8 @@ export function validateBang(
     const expected = signPublicKey(handshakeKey, bang.ecdhPublicKey);
     return {
         publicKey: bang.ecdhPublicKey,
-        signatureValid: expected.equals(bang.ecdhSignature),
+        signatureValid: expected.length === bang.ecdhSignature.length
+            && crypto.timingSafeEqual(expected, bang.ecdhSignature),
     };
 }
 
