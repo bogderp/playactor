@@ -9,6 +9,8 @@ export enum WireType {
     Varint = 0,
     Fixed64 = 1,
     LengthDelimited = 2,
+    StartGroup = 3,
+    EndGroup = 4,
     Fixed32 = 5,
 }
 
@@ -104,10 +106,56 @@ export function decodeFields(buffer: Buffer): IProtoField[] {
         return slice;
     }
 
+    function readKey() {
+        const key = readVarint();
+        if (key > BigInt(0xffffffff)) {
+            throw new Error("Protobuf field key too large");
+        }
+        const field = Number(key >> BigInt(3));
+        if (field === 0) {
+            throw new Error("Protobuf field number 0");
+        }
+        return { field, wireType: Number(key & BigInt(7)) };
+    }
+
+    function readLength() {
+        return Number(readVarint());
+    }
+
+    /** Skip a group body whose start key has been read, up to its end */
+    function skipGroup(field: number) {
+        const open = [field];
+        while (open.length > 0) {
+            const key = readKey();
+            switch (key.wireType) {
+                case WireType.Varint:
+                    readVarint();
+                    break;
+                case WireType.Fixed64:
+                    take(8);
+                    break;
+                case WireType.LengthDelimited:
+                    take(readLength());
+                    break;
+                case WireType.Fixed32:
+                    take(4);
+                    break;
+                case WireType.StartGroup:
+                    open.push(key.field);
+                    break;
+                case WireType.EndGroup:
+                    if (open.pop() !== key.field) {
+                        throw new Error("Mismatched protobuf end-group");
+                    }
+                    break;
+                default:
+                    throw new Error(`Unsupported protobuf wire type ${key.wireType}`);
+            }
+        }
+    }
+
     while (offset < buffer.length) {
-        const key = Number(readVarint());
-        const field = key >>> 3;
-        const wireType = key & 0x7;
+        const { field, wireType } = readKey();
 
         switch (wireType) {
             case WireType.Varint:
@@ -123,8 +171,7 @@ export function decodeFields(buffer: Buffer): IProtoField[] {
             }
 
             case WireType.LengthDelimited: {
-                const length = Number(readVarint());
-                fields.push({ field, wireType, bytes: take(length) });
+                fields.push({ field, wireType, bytes: take(readLength()) });
                 break;
             }
 
@@ -135,6 +182,13 @@ export function decodeFields(buffer: Buffer): IProtoField[] {
                 });
                 break;
             }
+
+            case WireType.StartGroup:
+                skipGroup(field);
+                break;
+
+            case WireType.EndGroup:
+                throw new Error("Unexpected protobuf end-group");
 
             default:
                 throw new Error(`Unsupported protobuf wire type ${wireType}`);
