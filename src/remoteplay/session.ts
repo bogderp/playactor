@@ -308,7 +308,7 @@ export interface IRemotePlaySession {
 }
 
 export interface IOpenSessionOptions {
-    /** How long to wait for the login reply (default: 10 s) */
+    /** How long to wait for the login reply (default: 10 s; Infinity: no limit) */
     loginTimeoutMillis?: number;
 }
 
@@ -320,6 +320,11 @@ async function loginWithTimeout(
     config: IConnectionConfig,
     timeoutMillis: number,
 ) {
+    if (timeoutMillis === Infinity) {
+        await socket.execute(new RemotePlayLoginProc(config));
+        return;
+    }
+
     let timer: NodeJS.Timeout | undefined;
     const timedOut = new Promise<never>((_, reject) => {
         timer = setTimeout(
@@ -400,6 +405,9 @@ export async function openSession(
     config: IConnectionConfig,
     creds: IRemotePlayCredentials,
 ) {
-    const { socket } = await openSessionWithInfo(device, config, creds);
+    // existing connections never limited the login, so keep it that way
+    const { socket } = await openSessionWithInfo(device, config, creds, {
+        loginTimeoutMillis: Infinity,
+    });
     return socket;
 }
