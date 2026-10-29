@@ -578,7 +578,8 @@ describe("Remote Play stream session", function streamSessionTests() {
         const before = fake.sent.length;
         await delay(100);
         stream.isConnected.should.be.true;
-        const states = fake.sent.slice(before).filter(s => s.feedback && s.baseType === BaseType.FeedbackState);
+        const states = fake.sent.slice(before)
+            .filter(s => s.feedback && s.baseType === BaseType.FeedbackState);
         states.length.should.be.greaterThan(0);
         states[0].feedback!.payload.should.deep.equal(idle);
 
