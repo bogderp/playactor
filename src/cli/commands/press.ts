@@ -9,7 +9,7 @@ import {
 import { DiskCredentialsStorage } from "../../credentials/disk-storage";
 import { isRemotePlay } from "../../credentials/model";
 import { DeviceStatus, DeviceType } from "../../discovery/model";
-import { openStreamSession, parseStreamButton } from "../../remoteplay/stream";
+import { ControllerType, openStreamSession, parseStreamButton } from "../../remoteplay/stream";
 import { DeviceOptions } from "../options";
 
 export class PressOptions extends DeviceOptions {
@@ -28,7 +28,27 @@ export class PressOptions extends DeviceOptions {
         default: 300,
     })
     public gapMillis = 300;
+
+    @option({
+        name: "controller",
+        description: "Controller type to announce: ds4, dualsense or mobile",
+        default: "ds4",
+    })
+    public controller = "ds4";
+
+    @option({
+        name: "no-mic",
+        description: "Don't send the microphone messages",
+        toggle: true,
+    })
+    public noMic = false;
 }
+
+const controllerTypes: Record<string, ControllerType> = {
+    ds4: ControllerType.DUALSHOCK4,
+    dualsense: ControllerType.DUALSENSE,
+    mobile: ControllerType.MOBILE,
+};
 
 function delay(millis: number) {
     return new Promise<void>(resolve => setTimeout(resolve, millis));
@@ -66,6 +86,11 @@ export default class extends Command {
             }
         });
 
+        const controllerType = controllerTypes[options.controller];
+        if (controllerType === undefined) {
+            throw new ExpectedError(`Unknown controller type: ${options.controller}`);
+        }
+
         const start = Date.now();
         const elapsed = () => `${String(Date.now() - start).padStart(5)} ms`;
 
@@ -95,7 +120,12 @@ export default class extends Command {
         options.logResult(`${elapsed()}  found ${discovered.name} (awake)`);
 
         const session = await openStreamSession(discovered, options.connectionConfig, creds, {
-            stream: { holdMillis: options.holdMillis },
+            stream: {
+                holdMillis: options.holdMillis,
+                controllerType,
+                sendMicStreamInfo: !options.noMic,
+            },
+            sendOptionalCtrlMessages: !options.noMic,
             onLoggedIn: () => options.logResult(`${elapsed()}  login done`),
             onSessionId: fallback => {
                 if (fallback) {

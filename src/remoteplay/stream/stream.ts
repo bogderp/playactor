@@ -26,6 +26,7 @@ import {
     ILaunchSpecOptions,
 } from "./launch-spec";
 import {
+    ControllerType,
     decodeTakionMessage,
     encodeDisconnect,
     encodeHeartbeat,
@@ -59,6 +60,12 @@ export interface IStreamOptions {
 
     /** Wait for the console to ACK CONTROLLERCONNECTION before input */
     waitForControllerAck: boolean;
+
+    /** Controller announced in CONTROLLERCONNECTION */
+    controllerType: ControllerType;
+
+    /** Send the client microphone STREAMINFO (spec 6.5, unverified) */
+    sendMicStreamInfo: boolean;
 }
 
 export const defaultStreamOptions: IStreamOptions = {
@@ -70,6 +77,8 @@ export const defaultStreamOptions: IStreamOptions = {
     holdMillis: 50,
     tailResendMillis: [20, 50, 100, 200],
     waitForControllerAck: true,
+    controllerType: ControllerType.DUALSHOCK4,
+    sendMicStreamInfo: true,
 };
 
 export interface IStreamParams {
@@ -411,7 +420,10 @@ export class RemotePlayStream {
     private async sendStreamInfoReplies() {
         if (this.state !== State.CONNECTED) return;
 
-        const acks = streamInfoReplies().map(reply => this.transport.sendData(
+        const acks = streamInfoReplies(
+            this.options.controllerType,
+            this.options.sendMicStreamInfo,
+        ).map(reply => this.transport.sendData(
             reply.channel,
             reply.data,
         ));

@@ -1,6 +1,7 @@
 import { IStreamParams, RemotePlayStream } from "./stream";
 
 export { StreamButton, parseStreamButton } from "./input";
+export { ControllerType } from "./messages";
 export { IStreamOptions, ITapResult, RemotePlayStream } from "./stream";
 export { IStreamSession, IStreamSessionOptions, openStreamSession } from "./session";
 

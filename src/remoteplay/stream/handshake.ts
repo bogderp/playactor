@@ -5,6 +5,7 @@ import {
     encodeClientStreamInfo,
     encodeControllerConnection,
     encodeStreamInfoAck,
+    ControllerType,
     IBangPayload,
     TAKION_VERSION,
 } from "./messages";
@@ -66,10 +67,19 @@ export function validateBang(
 /**
  * The client's replies to STREAMINFO, in order (spec 6.5)
  */
-export function streamInfoReplies() {
-    return [
+export function streamInfoReplies(
+    controllerType: ControllerType = ControllerType.DUALSHOCK4,
+    sendMicStreamInfo = true,
+) {
+    const replies = [
         { channel: StreamChannel.StreamInfoAck, data: encodeStreamInfoAck() },
-        { channel: StreamChannel.Main, data: encodeControllerConnection() },
-        { channel: StreamChannel.Main, data: encodeClientStreamInfo(encodeAudioHeader()) },
+        { channel: StreamChannel.Main, data: encodeControllerConnection(controllerType) },
     ];
+    if (sendMicStreamInfo) {
+        replies.push({
+            channel: StreamChannel.Main,
+            data: encodeClientStreamInfo(encodeAudioHeader()),
+        });
+    }
+    return replies;
 }
