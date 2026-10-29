@@ -9,7 +9,8 @@ playactor
 > [#71](https://github.com/dhleong/playactor/pull/71) (standby without a
 > Remote Play login) and [#72](https://github.com/dhleong/playactor/pull/72)
 > (control socket handover on modern Node.js), plus fixes for the UDP
-> discovery listener leak and a crash from `got` retries.
+> discovery listener leak and a crash from `got` retries. It also adds PS5
+> button presses over a Remote Play stream session (see below).
 
 ## What?
 
@@ -22,8 +23,16 @@ PS4 and PS5 devices. It is the successor to my older project,
 | Wake             | ✅  | ✅  |
 | Standby          | ✅  | ✅  |
 | Keyboard control | ✅  | ❌  |
-| Key/Button press | ✅  | ❌  |
+| Key/Button press | ✅  | ✅¹ |
 | App/Game start   | ✅  | ❌  |
+
+¹ On the PS5, button presses go over a Remote Play stream session (no video
+or audio is decoded). The console must already be awake, and it shows
+"&lt;user&gt; connected" / "disconnected" for each session. Try it with
+`playactor press --ps5 right right cross`. The L2 and R2 triggers are not
+supported by `press`. This is a clean-room
+implementation, written from a protocol description without using code from
+other Remote Play clients.
 
 ## How?
 

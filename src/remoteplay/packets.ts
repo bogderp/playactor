@@ -3,6 +3,9 @@ import { IPacket } from "../socket/model";
 export enum RemotePlayCommand {
     Standby = 0x50,
     Login = 0x05,
+    GoHome = 0x14,
+    MicToggle = 0x36,
+    DisplayDevices = 0x910,
     Heartbeat = 0x1fe,
     ProvidePasscode = 0x8004,
 }
@@ -10,6 +13,7 @@ export enum RemotePlayCommand {
 export enum RemotePlayResponseType {
     Passcode = 0x4,
     Login = 0x05,
+    SessionId = 0x33,
     Heartbeat = 0xfe,
 }
 

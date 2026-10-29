@@ -183,11 +183,8 @@ export class TcpDeviceSocket implements IDeviceSocket {
 
     private onPacketReceived(packet: IPacket) {
         this.protocol.onPacketReceived?.(this, packet).catch(err => {
+            // never rethrow: this handler's rejection would be unhandled
             debug("protocol error from", packet, ":", err);
-
-            if (!this.isConnected) {
-                throw err;
-            }
         });
 
         for (const receiver of this.receivers) {

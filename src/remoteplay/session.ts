@@ -11,6 +11,7 @@ import { parseControlResponse } from "./control-response";
 import { pickCryptoStrategyForDevice } from "./crypto";
 import { RemotePlayVersion, remotePlayVersionFor, remotePlayVersionToString } from "./model";
 import { RemotePlayLoginProc } from "./proc/login";
+import { receiveSessionId } from "./session-id";
 import {
     CRYPTO_NONCE_LENGTH,
     padBuffer,
@@ -96,6 +97,7 @@ async function openControlSocket(
     device: IDiscoveredDevice,
     creds: IRemotePlayCredentials,
     nonce: Buffer,
+    onSocketCreated?: (socket: TcpDeviceSocket) => void,
 ): Promise<TcpDeviceSocket> {
     const codec = new RemotePlayPacketCodec(
         pickCryptoStrategyForDevice(device),
@@ -253,6 +255,10 @@ async function openControlSocket(
 
                 finished = true;
 
+                // Attach early readers (eg: for the session ID message)
+                // before any binary packet can be dispatched.
+                onSocketCreated?.(connection);
+
                 debug("session control socket handed over to Remote Play");
 
                 // TcpDeviceSocket now owns incoming binary packets.
@@ -287,6 +293,110 @@ async function openControlSocket(
     });
 }
 
+export interface IRemotePlaySession {
+    socket: TcpDeviceSocket;
+    nonce: Buffer;
+
+    /**
+     * Resolves with the session ID from ctrl message 0x33, or with
+     * undefined if the control socket closes first.
+     */
+    sessionId: Promise<string | undefined>;
+
+    /** Stop waiting for the session ID and detach its receiver */
+    cancelSessionId: () => void;
+}
+
+export interface IOpenSessionOptions {
+    /** How long to wait for the login reply (default: 10 s; Infinity: no limit) */
+    loginTimeoutMillis?: number;
+}
+
+const DEFAULT_LOGIN_TIMEOUT = 10_000;
+
+/** Run the login, failing if the console doesn't answer in time */
+async function loginWithTimeout(
+    socket: TcpDeviceSocket,
+    config: IConnectionConfig,
+    timeoutMillis: number,
+) {
+    if (timeoutMillis === Infinity) {
+        await socket.execute(new RemotePlayLoginProc(config));
+        return;
+    }
+
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () => reject(new Error("Timed out waiting for the login reply")),
+            timeoutMillis,
+        );
+    });
+
+    const login = socket.execute(new RemotePlayLoginProc(config));
+    login.catch(() => { /* reported through the race below */ });
+
+    try {
+        await Promise.race([login, timedOut]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
+/**
+ * Step 3: authenticate the Remote Play session, keeping what a stream
+ * session needs (the server nonce and the session ID).
+ */
+export async function openSessionWithInfo(
+    device: IDiscoveredDevice,
+    config: IConnectionConfig,
+    creds: IRemotePlayCredentials,
+    options: IOpenSessionOptions = {},
+): Promise<IRemotePlaySession> {
+    const nonce = await initializeSession(device, creds);
+
+    // Allow the console to release the initial HTTP connection.
+    // This delay resolved the TCP connection reset under Node.js 24.
+    debug("waiting 200ms before opening session control connection...");
+    await delayMillis(200);
+
+    let sessionId: Promise<string | undefined> = Promise.resolve(undefined);
+    const abort = new AbortController();
+    const socket = await openControlSocket(device, creds, nonce, s => {
+        sessionId = receiveSessionId(s, abort.signal);
+    });
+
+    // The console accepts Standby without a login, and it never answers
+    // the login request while it shows the "not turned off properly"
+    // dialog after a power loss, so a standby session skips it.
+    if (config.intent !== ConnectionIntent.STANDBY) {
+        try {
+            await loginWithTimeout(
+                socket,
+                config,
+                options.loginTimeoutMillis ?? DEFAULT_LOGIN_TIMEOUT,
+            );
+        } catch (e) {
+            // the caller never sees the socket, so don't leave it open
+            abort.abort();
+            try {
+                await socket.close();
+            } catch (closeError) {
+                debug("error closing the control socket:", closeError);
+            }
+            throw e;
+        }
+    }
+
+    debug("RemotePlaySession ready!");
+    return {
+        socket,
+        nonce,
+        sessionId,
+        cancelSessionId: () => abort.abort(),
+    };
+}
+
 /**
  * Step 3: authenticate the Remote Play session.
  */
@@ -295,22 +405,9 @@ export async function openSession(
     config: IConnectionConfig,
     creds: IRemotePlayCredentials,
 ) {
-    const nonce = await initializeSession(device, creds);
-
-    // Allow the console to release the initial HTTP connection.
-    // This delay resolved the TCP connection reset under Node.js 24.
-    debug("waiting 200ms before opening session control connection...");
-    await delayMillis(200);
-
-    const socket = await openControlSocket(device, creds, nonce);
-
-    // The console accepts Standby without a login, and it never answers
-    // the login request while it shows the "not turned off properly"
-    // dialog after a power loss, so a standby session skips it.
-    if (config.intent !== ConnectionIntent.STANDBY) {
-        await socket.execute(new RemotePlayLoginProc(config));
-    }
-
-    debug("RemotePlaySession ready!");
+    // existing connections never limited the login, so keep it that way
+    const { socket } = await openSessionWithInfo(device, config, creds, {
+        loginTimeoutMillis: Infinity,
+    });
     return socket;
 }
