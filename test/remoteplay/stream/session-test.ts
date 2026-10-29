@@ -102,7 +102,7 @@ describe("openStreamSession", () => {
         socket.close.should.have.been.calledOnce;
     });
 
-    it("closes the ctrl socket when the stream ends on its own (R3)", async () => {
+    it("closes the ctrl socket when the stream ends on its own", async () => {
         const channel = fakeChannel();
         sinon.stub(RemotePlayStream.prototype, "start").resolves();
 

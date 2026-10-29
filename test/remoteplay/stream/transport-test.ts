@@ -114,7 +114,7 @@ async function establish(
 describe("Stream transport", () => {
     afterEach(() => sinon.restore());
 
-    it("acknowledges and skips a malformed DATA payload (R11)", async () => {
+    it("acknowledges and skips a malformed DATA payload", async () => {
         const channel = new FakeChannel();
         const transport = await establish(channel);
         const messages: IReceivedMessage[] = [];
@@ -131,7 +131,7 @@ describe("Stream transport", () => {
         transport.close();
     });
 
-    it("buffers only TSNs within the reorder distance (R12)", async () => {
+    it("buffers only TSNs within the reorder distance", async () => {
         const channel = new FakeChannel();
         const transport = await establish(channel);
         const messages: IReceivedMessage[] = [];
@@ -151,7 +151,7 @@ describe("Stream transport", () => {
         transport.close();
     });
 
-    it("stops the retransmit timer after giving up (N6)", async () => {
+    it("stops the retransmit timer after giving up", async () => {
         const channel = new FakeChannel();
         const transport = await establish(channel, {
             retransmitMillis: 20,
@@ -166,7 +166,7 @@ describe("Stream transport", () => {
         transport.close();
     });
 
-    it("reports an error from the retransmit timer instead of throwing (R1)", async () => {
+    it("reports an error from the retransmit timer instead of throwing", async () => {
         const channel = new FakeChannel();
         const transport = await establish(channel, { retransmitMillis: 20 });
         const onError = sinon.stub();
@@ -180,7 +180,7 @@ describe("Stream transport", () => {
         transport.close();
     });
 
-    it("rejects with TransportClosedError when closed during the last attempt (N5)", async () => {
+    it("rejects with TransportClosedError when closed during the last attempt", async () => {
         const channel = new FakeChannel(false);
         const transport = new StreamTransport(channel, {
             ...defaultTransportOptions,
@@ -198,7 +198,7 @@ describe("Stream transport", () => {
 describe("UdpDatagramChannel", () => {
     afterEach(() => sinon.restore());
 
-    it("closes the socket if binding fails (R7)", async () => {
+    it("closes the socket if binding fails", async () => {
         const socket = Object.assign(new EventEmitter(), {
             bind() {
                 setImmediate(() => socket.emit("error", new Error("EADDRNOTAVAIL")));

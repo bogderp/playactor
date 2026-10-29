@@ -73,7 +73,7 @@ function setUpConsole() {
 describe("RemotePlay session login", () => {
     afterEach(() => sinon.restore());
 
-    it("closes the control socket when the login is rejected (R2)", async () => {
+    it("closes the control socket when the login is rejected", async () => {
         const { device, credentials, stream } = setUpConsole();
         sinon.stub(TcpDeviceSocket.prototype, "execute").rejects(new Error("passcode needed"));
 
@@ -82,7 +82,7 @@ describe("RemotePlay session login", () => {
         stream.destroyed.should.be.true;
     });
 
-    it("gives up and closes the socket if the console never answers the login (R2)", async () => {
+    it("gives up and closes the socket if the console never answers the login", async () => {
         const { device, credentials, stream } = setUpConsole();
 
         await openSessionWithInfo(device, {}, credentials, { loginTimeoutMillis: 50 })

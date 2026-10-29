@@ -556,7 +556,7 @@ describe("Remote Play stream session", function streamSessionTests() {
         channel.closed.should.be.true;
     });
 
-    it("rejects a bad stick value without crashing from a timer (B1)", async () => {
+    it("rejects a bad stick value without crashing from a timer", async () => {
         const fake = new FakeConsole();
         const stream = openFakeStream(fake);
         await stream.start();
@@ -597,7 +597,7 @@ describe("Remote Play stream session", function streamSessionTests() {
         stream.isConnected.should.be.true;
     });
 
-    it("shuts down instead of throwing when a timer fails (R1)", async () => {
+    it("shuts down instead of throwing when a timer fails", async () => {
         const fake = new FakeConsole();
         const stream = openFakeStream(fake);
         await stream.start();
@@ -608,7 +608,7 @@ describe("Remote Play stream session", function streamSessionTests() {
         fake.channel.closed.should.be.true;
     });
 
-    it("still sends the release when close() is called during a hold (R4)", async () => {
+    it("still sends the release when close() is called during a hold", async () => {
         const fake = new FakeConsole();
         const stream = openFakeStream(fake);
         await stream.start();
@@ -633,7 +633,7 @@ describe("Remote Play stream session", function streamSessionTests() {
             .toString("hex"))).should.be.false;
     });
 
-    it("closes the transport even if sending DISCONNECT throws (R6)", async () => {
+    it("closes the transport even if sending DISCONNECT throws", async () => {
         const fake = new FakeConsole();
         const stream = openFakeStream(fake, {
             ...fastOptions,

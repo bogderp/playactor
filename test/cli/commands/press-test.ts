@@ -87,7 +87,7 @@ describe("press command", () => {
         find.should.not.have.been.called;
     });
 
-    it("rejects names from Object.prototype as buttons (N1)", async () => {
+    it("rejects names from Object.prototype as buttons", async () => {
         const options = new PressOptions();
         const find = sinon.stub(options, "findDevice");
         await new PressCommand().execute(["constructor"], options)
@@ -107,7 +107,7 @@ describe("press command", () => {
     }
 
     for (const bad of [NaN, Infinity, -1, 2 ** 31]) {
-        it(`rejects --hold ${bad} and --gap ${bad} (N2)`, async () => {
+        it(`rejects --hold ${bad} and --gap ${bad}`, async () => {
             const hold = new PressOptions();
             hold.holdMillis = bad;
             await new PressCommand().execute(["ps"], hold)
@@ -120,7 +120,7 @@ describe("press command", () => {
         });
     }
 
-    it("warns about a short --hold (N2)", async () => {
+    it("warns about a short --hold", async () => {
         const { options, logInfo, fakeSession } = setUpAwakeConsole();
         options.holdMillis = 10;
         await new PressCommand().execute(["ps"], options);
@@ -136,7 +136,7 @@ describe("press command", () => {
         fakeSession.close.should.have.been.calledOnce;
     });
 
-    it("doesn't mask a press error with a close error (N4)", async () => {
+    it("doesn't mask a press error with a close error", async () => {
         const { options, logInfo, fakeSession } = setUpAwakeConsole();
         fakeSession.tap.rejects(new Error("press failed"));
         fakeSession.close.rejects(new Error("close failed"));
@@ -146,7 +146,7 @@ describe("press command", () => {
         logInfo.should.have.been.calledWithMatch(/close failed/);
     });
 
-    it("closes the session on SIGINT and then exits (N4)", async () => {
+    it("closes the session on SIGINT and then exits", async () => {
         const { options, fakeSession } = setUpAwakeConsole();
         fakeSession.tap.returns(new Promise(() => { /* a press that never finishes */ }));
         const exit = sinon.stub(process, "exit");
