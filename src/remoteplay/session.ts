@@ -11,6 +11,7 @@ import { parseControlResponse } from "./control-response";
 import { pickCryptoStrategyForDevice } from "./crypto";
 import { RemotePlayVersion, remotePlayVersionFor, remotePlayVersionToString } from "./model";
 import { RemotePlayLoginProc } from "./proc/login";
+import { receiveSessionId } from "./session-id";
 import {
     CRYPTO_NONCE_LENGTH,
     padBuffer,
@@ -96,6 +97,7 @@ async function openControlSocket(
     device: IDiscoveredDevice,
     creds: IRemotePlayCredentials,
     nonce: Buffer,
+    onSocketCreated?: (socket: TcpDeviceSocket) => void,
 ): Promise<TcpDeviceSocket> {
     const codec = new RemotePlayPacketCodec(
         pickCryptoStrategyForDevice(device),
@@ -253,6 +255,10 @@ async function openControlSocket(
 
                 finished = true;
 
+                // Attach early readers (eg: for the session ID message)
+                // before any binary packet can be dispatched.
+                onSocketCreated?.(connection);
+
                 debug("session control socket handed over to Remote Play");
 
                 // TcpDeviceSocket now owns incoming binary packets.
@@ -287,14 +293,26 @@ async function openControlSocket(
     });
 }
 
+export interface IRemotePlaySession {
+    socket: TcpDeviceSocket;
+    nonce: Buffer;
+
+    /**
+     * Resolves with the session ID from ctrl message 0x33, or with
+     * undefined if the control socket closes first.
+     */
+    sessionId: Promise<string | undefined>;
+}
+
 /**
- * Step 3: authenticate the Remote Play session.
+ * Step 3: authenticate the Remote Play session, keeping what a stream
+ * session needs (the server nonce and the session ID).
  */
-export async function openSession(
+export async function openSessionWithInfo(
     device: IDiscoveredDevice,
     config: IConnectionConfig,
     creds: IRemotePlayCredentials,
-) {
+): Promise<IRemotePlaySession> {
     const nonce = await initializeSession(device, creds);
 
     // Allow the console to release the initial HTTP connection.
@@ -302,7 +320,10 @@ export async function openSession(
     debug("waiting 200ms before opening session control connection...");
     await delayMillis(200);
 
-    const socket = await openControlSocket(device, creds, nonce);
+    let sessionId: Promise<string | undefined> = Promise.resolve(undefined);
+    const socket = await openControlSocket(device, creds, nonce, s => {
+        sessionId = receiveSessionId(s);
+    });
 
     // The console accepts Standby without a login, and it never answers
     // the login request while it shows the "not turned off properly"
@@ -312,5 +333,17 @@ export async function openSession(
     }
 
     debug("RemotePlaySession ready!");
+    return { socket, nonce, sessionId };
+}
+
+/**
+ * Step 3: authenticate the Remote Play session.
+ */
+export async function openSession(
+    device: IDiscoveredDevice,
+    config: IConnectionConfig,
+    creds: IRemotePlayCredentials,
+) {
+    const { socket } = await openSessionWithInfo(device, config, creds);
     return socket;
 }
