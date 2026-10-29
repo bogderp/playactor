@@ -29,7 +29,8 @@ PS4 and PS5 devices. It is the successor to my older project,
 ¹ On the PS5, button presses go over a Remote Play stream session (no video
 or audio is decoded). The console must already be awake, and it shows
 "&lt;user&gt; connected" / "disconnected" for each session. Try it with
-`playactor press --ps5 right right cross`. This is a clean-room
+`playactor press --ps5 right right cross`. The L2 and R2 triggers are not
+supported by `press`. This is a clean-room
 implementation, written from a protocol description without using code from
 other Remote Play clients.
 

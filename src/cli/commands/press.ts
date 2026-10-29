@@ -31,7 +31,7 @@ export class PressOptions extends DeviceOptions {
 
     @option({
         name: "controller",
-        description: "Controller type to announce: ds4, dualsense or mobile",
+        description: "Controller type to announce (only ds4 is supported)",
         default: "ds4",
         type: String,
     })
@@ -45,11 +45,22 @@ export class PressOptions extends DeviceOptions {
     public mic = false;
 }
 
-const controllerTypes: Record<string, ControllerType> = {
-    ds4: ControllerType.DUALSHOCK4,
-    dualsense: ControllerType.DUALSENSE,
-    mobile: ControllerType.MOBILE,
-};
+// DualSense and mobile aren't covered by the protocol description (the
+// DualSense also needs ctrl messages we don't send), so they're not offered
+const controllerTypes = new Map<string, ControllerType>([
+    ["ds4", ControllerType.DUALSHOCK4],
+]);
+
+/** setTimeout accepts at most 2^31 - 1 ms */
+const MAX_MILLIS = 2 ** 31 - 1;
+const MIN_RECOMMENDED_HOLD = 50;
+
+function parseMillis(name: string, value: number) {
+    if (!Number.isFinite(value) || value < 0 || value > MAX_MILLIS) {
+        throw new ExpectedError(`--${name} must be between 0 and ${MAX_MILLIS} milliseconds`);
+    }
+    return value;
+}
 
 function delay(millis: number) {
     return new Promise<void>(resolve => setTimeout(resolve, millis));
@@ -79,6 +90,14 @@ export default class extends Command {
         buttonNames: string[],
         options: PressOptions,
     ) {
+        const holdMillis = parseMillis("hold", options.holdMillis);
+        const gapMillis = parseMillis("gap", options.gapMillis);
+        if (holdMillis < MIN_RECOMMENDED_HOLD) {
+            options.logInfo(
+                `Warning: --hold below ${MIN_RECOMMENDED_HOLD} ms may be missed by the game`,
+            );
+        }
+
         const buttons = buttonNames.map(name => {
             try {
                 return parseStreamButton(name);
@@ -87,7 +106,7 @@ export default class extends Command {
             }
         });
 
-        const controllerType = controllerTypes[options.controller];
+        const controllerType = controllerTypes.get(options.controller);
         if (controllerType === undefined) {
             throw new ExpectedError(`Unknown controller type: ${options.controller}`);
         }
@@ -122,7 +141,7 @@ export default class extends Command {
 
         const session = await openStreamSession(discovered, options.connectionConfig, creds, {
             stream: {
-                holdMillis: options.holdMillis,
+                holdMillis,
                 controllerType,
                 sendMicStreamInfo: options.mic,
             },
@@ -135,25 +154,52 @@ export default class extends Command {
             },
         });
 
+        // Ctrl-C: end the session politely (sends DISCONNECT), then exit
+        const onSignal = (signal: NodeJS.Signals) => {
+            const code = signal === "SIGINT" ? 130 : 143;
+            session.close().then(
+                () => process.exit(code),
+                () => process.exit(code),
+            );
+        };
+        const onInt = () => onSignal("SIGINT");
+        const onTerm = () => onSignal("SIGTERM");
+        process.once("SIGINT", onInt);
+        process.once("SIGTERM", onTerm);
+
+        let failure: { error: unknown } | undefined;
         try {
             options.logResult(`${elapsed()}  stream ready (first press possible)`);
 
             for (let i = 0; i < buttons.length; i++) {
                 if (i > 0) {
                     // eslint-disable-next-line no-await-in-loop
-                    await delay(options.gapMillis);
+                    await delay(gapMillis);
                 }
 
                 // eslint-disable-next-line no-await-in-loop
-                const tap = await session.tap(buttons[i], options.holdMillis);
+                const tap = await session.tap(buttons[i], holdMillis);
                 options.logResult(
                     `${String(tap.pressedAt - start).padStart(5)} ms  press ${tap.button} sent`
                     + ` (released after ${tap.releasedAt - tap.pressedAt} ms)`,
                 );
             }
-        } finally {
+        } catch (error) {
+            failure = { error };
+        }
+
+        process.removeListener("SIGINT", onInt);
+        process.removeListener("SIGTERM", onTerm);
+
+        try {
             await session.close();
             options.logResult(`${elapsed()}  closed`);
+        } catch (closeError) {
+            // don't mask the error that ended the presses
+            if (!failure) throw closeError;
+            options.logInfo(`Error while closing the session: ${closeError}`);
         }
+
+        if (failure) throw failure.error;
     }
 }
