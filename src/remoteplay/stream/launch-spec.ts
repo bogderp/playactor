@@ -29,8 +29,8 @@ function str(value: string) {
 }
 
 function int(value: number) {
-    if (!Number.isInteger(value)) {
-        throw new Error(`Expected an integer: ${value}`);
+    if (!Number.isInteger(value) || value <= 0) {
+        throw new Error(`Expected a positive integer: ${value}`);
     }
     return String(value);
 }
@@ -44,6 +44,16 @@ export function formatLaunchSpec(
     handshakeKey: Buffer,
     options: ILaunchSpecOptions = defaultLaunchSpecOptions,
 ) {
+    if (options.codec !== "avc" && options.codec !== "hevc") {
+        throw new Error(`Unknown video codec: ${options.codec}`);
+    }
+    if (options.dynamicRange !== "SDR" && options.dynamicRange !== "HDR") {
+        throw new Error(`Unknown dynamic range: ${options.dynamicRange}`);
+    }
+    if (options.dynamicRange === "HDR" && options.codec !== "hevc") {
+        throw new Error("HDR needs the hevc codec");
+    }
+
     const resolution = `{"resolution":{"width":${int(options.width)},"height":${int(options.height)}},`
         + `"maxFps":${int(options.maxFps)},"score":10}`;
 
