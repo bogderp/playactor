@@ -33,6 +33,7 @@ export class PressOptions extends DeviceOptions {
         name: "controller",
         description: "Controller type to announce: ds4, dualsense or mobile",
         default: "ds4",
+        type: String,
     })
     public controller = "ds4";
 
