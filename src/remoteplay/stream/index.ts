@@ -3,6 +3,11 @@ import { IStreamParams, RemotePlayStream } from "./stream";
 export { StreamButton, parseStreamButton } from "./input";
 export { ControllerType } from "./messages";
 export { IStreamOptions, ITapResult, RemotePlayStream } from "./stream";
+export {
+    DEFAULT_REMOTE_IDLE_TIMEOUT_MILLIS,
+    IStreamRemoteOptions,
+    StreamRemote,
+} from "./remote";
 export { IStreamSession, IStreamSessionOptions, openStreamSession } from "./session";
 
 /**
