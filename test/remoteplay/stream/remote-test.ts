@@ -190,7 +190,7 @@ describe("StreamRemote", () => {
 
         const tap = remote.tap(StreamButton.RIGHT);
         const rejected = tap.should.be.rejectedWith("Timed out opening");
-        await clock.tickAsync(15_000);
+        await clock.tickAsync(30_000);
         await rejected;
 
         // the queue moves on
@@ -225,6 +225,29 @@ describe("StreamRemote", () => {
         await tap;
         sessions.should.have.length(2);
         sessions[1].taps.should.deep.equal([StreamButton.LEFT]);
+    });
+
+    it("keeps a connected session when a tap fails", async () => {
+        await remote.tap(StreamButton.RIGHT);
+        sessions[0].tap = async () => {
+            throw new Error("bad hold");
+        };
+
+        await remote.tap(StreamButton.LEFT).should.be.rejectedWith("bad hold");
+        remote.isOpen.should.be.true;
+        sessions.should.have.length(1);
+    });
+
+    it("drops the session when a tap fails on a dead stream", async () => {
+        await remote.tap(StreamButton.RIGHT);
+        const [session] = sessions;
+        session.tap = async () => {
+            session.isClosed = true;
+            throw new Error("Stream is not connected");
+        };
+
+        await remote.tap(StreamButton.LEFT).should.be.rejectedWith("not connected");
+        remote.isOpen.should.be.false;
     });
 
     it("close() closes the open session", async () => {

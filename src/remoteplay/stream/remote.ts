@@ -11,7 +11,9 @@ import { ITapResult } from "./stream";
 const debug = _debug("playactor:remoteplay:stream:remote");
 
 export const DEFAULT_REMOTE_IDLE_TIMEOUT_MILLIS = 60_000;
-export const DEFAULT_REMOTE_OPEN_TIMEOUT_MILLIS = 15_000;
+// longer than the login, session ID and handshake timeouts together, so a
+// slow console isn't logged into twice
+export const DEFAULT_REMOTE_OPEN_TIMEOUT_MILLIS = 30_000;
 export const DEFAULT_REMOTE_TAP_GAP_MILLIS = 50;
 
 // the longest delay setTimeout supports
@@ -126,8 +128,8 @@ export class StreamRemote {
         try {
             result = await session.tap(button, holdMillis);
         } catch (e) {
-            // drop the broken session so the next tap opens a new one
-            await this.closeSession();
+            // drop a broken session so the next tap opens a new one
+            if (!session.stream.isConnected) await this.closeSession();
             throw e;
         } finally {
             this.lastTapAt = Date.now();
@@ -136,7 +138,9 @@ export class StreamRemote {
         if (this.session === session) {
             this.idleTimer = setTimeout(() => {
                 debug("idle for", this.idleTimeoutMillis, "ms; closing session");
-                this.enqueue(() => this.closeSession());
+                this.enqueue(() => this.closeSession()).catch(err => {
+                    debug("idle close failed:", err);
+                });
             }, this.idleTimeoutMillis);
             this.idleTimer.unref();
         }
