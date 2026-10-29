@@ -302,6 +302,40 @@ export interface IRemotePlaySession {
      * undefined if the control socket closes first.
      */
     sessionId: Promise<string | undefined>;
+
+    /** Stop waiting for the session ID and detach its receiver */
+    cancelSessionId: () => void;
+}
+
+export interface IOpenSessionOptions {
+    /** How long to wait for the login reply (default: 10 s) */
+    loginTimeoutMillis?: number;
+}
+
+const DEFAULT_LOGIN_TIMEOUT = 10_000;
+
+/** Run the login, failing if the console doesn't answer in time */
+async function loginWithTimeout(
+    socket: TcpDeviceSocket,
+    config: IConnectionConfig,
+    timeoutMillis: number,
+) {
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () => reject(new Error("Timed out waiting for the login reply")),
+            timeoutMillis,
+        );
+    });
+
+    const login = socket.execute(new RemotePlayLoginProc(config));
+    login.catch(() => { /* reported through the race below */ });
+
+    try {
+        await Promise.race([login, timedOut]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
 }
 
 /**
@@ -312,6 +346,7 @@ export async function openSessionWithInfo(
     device: IDiscoveredDevice,
     config: IConnectionConfig,
     creds: IRemotePlayCredentials,
+    options: IOpenSessionOptions = {},
 ): Promise<IRemotePlaySession> {
     const nonce = await initializeSession(device, creds);
 
@@ -321,19 +356,40 @@ export async function openSessionWithInfo(
     await delayMillis(200);
 
     let sessionId: Promise<string | undefined> = Promise.resolve(undefined);
+    const abort = new AbortController();
     const socket = await openControlSocket(device, creds, nonce, s => {
-        sessionId = receiveSessionId(s);
+        sessionId = receiveSessionId(s, abort.signal);
     });
 
     // The console accepts Standby without a login, and it never answers
     // the login request while it shows the "not turned off properly"
     // dialog after a power loss, so a standby session skips it.
     if (config.intent !== ConnectionIntent.STANDBY) {
-        await socket.execute(new RemotePlayLoginProc(config));
+        try {
+            await loginWithTimeout(
+                socket,
+                config,
+                options.loginTimeoutMillis ?? DEFAULT_LOGIN_TIMEOUT,
+            );
+        } catch (e) {
+            // the caller never sees the socket, so don't leave it open
+            abort.abort();
+            try {
+                await socket.close();
+            } catch (closeError) {
+                debug("error closing the control socket:", closeError);
+            }
+            throw e;
+        }
     }
 
     debug("RemotePlaySession ready!");
-    return { socket, nonce, sessionId };
+    return {
+        socket,
+        nonce,
+        sessionId,
+        cancelSessionId: () => abort.abort(),
+    };
 }
 
 /**

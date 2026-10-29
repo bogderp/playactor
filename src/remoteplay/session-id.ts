@@ -40,13 +40,33 @@ export function parseSessionIdPacket(packet: Buffer): string | undefined {
 /**
  * Wait for the console's session ID message. The receiver is attached
  * synchronously, so call this before any packet can be dispatched.
+ * Aborting the signal stops the wait (resolving undefined) and detaches
+ * the receiver from the socket.
  */
-export function receiveSessionId(socket: IDeviceSocket) {
-    const packets = socket.receive();
+export function receiveSessionId(socket: IDeviceSocket, signal?: AbortSignal) {
+    const iterator = socket.receive()[Symbol.asyncIterator]();
+
+    const aborted = new Promise<undefined>(resolve => {
+        if (signal?.aborted) {
+            resolve(undefined);
+        } else {
+            signal?.addEventListener("abort", () => resolve(undefined), { once: true });
+        }
+    });
 
     return (async () => {
         try {
-            for await (const packet of packets) {
+            for (;;) {
+                const pending = iterator.next();
+                pending.catch(() => { /* reported through the race below */ });
+
+                // eslint-disable-next-line no-await-in-loop
+                const result = await Promise.race([pending, aborted]);
+                if (!result || result.done) {
+                    break;
+                }
+
+                const packet = result.value;
                 if (packet.type === RemotePlayResponseType.SessionId) {
                     const id = parseSessionIdPacket(packet.toBuffer());
                     if (id) {
@@ -57,6 +77,12 @@ export function receiveSessionId(socket: IDeviceSocket) {
             }
         } catch (e) {
             debug("control socket ended before session ID:", e);
+        } finally {
+            try {
+                await iterator.return?.();
+            } catch (e) {
+                debug("unable to detach the session ID receiver:", e);
+            }
         }
         return undefined;
     })();

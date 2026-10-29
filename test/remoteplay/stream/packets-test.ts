@@ -593,6 +593,12 @@ describe("Remote Play stream input", () => {
         parseStreamButton("options").should.equal(StreamButton.OPTIONS);
         expect(() => parseStreamButton("select")).to.throw();
     });
+
+    it("rejects names from Object.prototype as buttons (N1)", () => {
+        for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+            expect(() => parseStreamButton(name), name).to.throw(/Unknown button/);
+        }
+    });
 });
 
 describe("Remote Play launch spec", () => {

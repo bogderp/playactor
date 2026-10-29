@@ -21,6 +21,9 @@ export interface IStreamSessionOptions {
     /** How long to wait for ctrl message 0x33 after login */
     sessionIdTimeoutMillis?: number;
 
+    /** How long to wait for the login reply (default: 10 s) */
+    loginTimeoutMillis?: number;
+
     /** Send the optional ctrl messages of spec 2.4 (default: false) */
     sendOptionalCtrlMessages?: boolean;
 
@@ -77,19 +80,43 @@ export async function openStreamSession(
         throw new Error("The Remote Play stream is only implemented for the PS5");
     }
 
-    const { socket, nonce, sessionId: sessionIdPromise } = await openSessionWithInfo(
+    const {
+        socket,
+        nonce,
+        sessionId: sessionIdPromise,
+        cancelSessionId,
+    } = await openSessionWithInfo(
         device,
         { ...config, intent: ConnectionIntent.LOGIN },
         creds,
+        { loginTimeoutMillis: options.loginTimeoutMillis },
     );
-    options.onLoggedIn?.();
+
+    let socketClosing: Promise<void> | undefined;
+    const closeSocket = () => {
+        if (!socketClosing) {
+            socketClosing = socket.close().catch(e => {
+                debug("error closing the control socket:", e);
+            });
+        }
+        return socketClosing;
+    };
 
     let stream: RemotePlayStream | undefined;
+    let channel: IDatagramChannel | undefined;
     try {
-        let sessionId = await timeout(
-            sessionIdPromise,
-            options.sessionIdTimeoutMillis ?? 3000,
-        );
+        options.onLoggedIn?.();
+
+        let sessionId: string | undefined;
+        try {
+            sessionId = await timeout(
+                sessionIdPromise,
+                options.sessionIdTimeoutMillis ?? 3000,
+            );
+        } finally {
+            // stop listening if the wait timed out
+            cancelSessionId();
+        }
         options.onSessionId?.(!sessionId);
         if (!sessionId) {
             debug("no session ID from the console; using a fallback");
@@ -101,7 +128,7 @@ export async function openStreamSession(
         }
 
         const strategy = pickCryptoStrategyForDevice(device);
-        const channel = options.createChannel
+        channel = options.createChannel
             ? await options.createChannel(device)
             : await UdpDatagramChannel.open(device.address.address, STREAM_PORT, {
                 address: config.network?.localBindAddress,
@@ -115,7 +142,9 @@ export async function openStreamSession(
         });
         stream = newStream;
 
-        // the stream ends whenever the ctrl connection does (spec 8.6)
+        // the ctrl connection ends whenever the stream does, and the
+        // stream ends whenever the ctrl connection does (spec 8.6)
+        newStream.closed.then(() => closeSocket());
         (async () => {
             try {
                 for await (const packet of socket.receive()) {
@@ -126,12 +155,20 @@ export async function openStreamSession(
             }
             debug("ctrl socket closed; closing stream");
             await newStream.close();
-        })();
+        })().catch(e => debug("error closing the stream:", e));
 
         await newStream.start();
     } catch (e) {
-        if (stream) await stream.close();
-        await socket.close();
+        try {
+            if (stream) {
+                await stream.close();
+            } else {
+                // the stream never took ownership of the channel
+                channel?.close();
+            }
+        } finally {
+            await closeSocket();
+        }
         throw e;
     }
 
@@ -142,7 +179,7 @@ export async function openStreamSession(
         tap: (button, holdMillis) => ready.tap(button, holdMillis),
         async close() {
             await ready.close();
-            await socket.close();
+            await closeSocket();
         },
     };
 }
