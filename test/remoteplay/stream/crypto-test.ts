@@ -156,4 +156,18 @@ describe("Remote Play stream crypto", () => {
     it("rejects a short handshake key", () => {
         expect(() => deriveContextKeys(V2.secret, Buffer.alloc(8), 2)).to.throw();
     });
+
+    describe("bad key positions", () => {
+        const ctx = StreamCryptoContext.derive(
+            V2.secret, V2.handshakeKey, 2,
+        );
+
+        it("keyStream throws on a negative key position", () => {
+            expect(() => ctx.keyStream(BigInt(-5), 4)).to.throw(/Negative/);
+        });
+
+        it("encrypt throws on a negative key position", () => {
+            expect(() => ctx.encrypt(BigInt(-5), Buffer.alloc(4))).to.throw(/Negative/);
+        });
+    });
 });

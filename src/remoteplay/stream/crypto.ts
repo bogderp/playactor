@@ -3,7 +3,7 @@
 import crypto from "crypto";
 
 /** Generation size of the MAC key schedule, in key-stream bytes (spec 7.4) */
-export const MAC_KEY_GENERATION_SIZE = BigInt(45000);
+const MAC_KEY_GENERATION_SIZE = BigInt(45000);
 
 /** IV step between MAC key generations (spec 7.4) */
 const MAC_KEY_IV_STEP = BigInt(44910);
@@ -15,9 +15,6 @@ export const ECDH_CURVE = "secp256k1";
 
 /** Context index used for client-to-console packets (spec 7) */
 export const CLIENT_CONTEXT_INDEX = 2;
-
-/** Context index used for console-to-client packets (spec 7) */
-export const CONSOLE_CONTEXT_INDEX = 3;
 
 /**
  * Treat the 16-byte `value` as one little-endian 128-bit integer,
@@ -60,7 +57,7 @@ function sha256(...parts: Buffer[]) {
     return hash.digest();
 }
 
-export function hmacSha256(key: Buffer, message: Buffer) {
+function hmacSha256(key: Buffer, message: Buffer) {
     return crypto.createHmac("sha256", key).update(message).digest();
 }
 
@@ -157,6 +154,9 @@ export class StreamCryptoContext {
      * Key stream bytes for absolute positions [keyPos, keyPos + length)
      */
     public keyStream(keyPos: bigint, length: number): Buffer {
+        if (keyPos < BigInt(0)) {
+            throw new Error(`Negative key position: ${keyPos}`);
+        }
         if (length <= 0) {
             return Buffer.alloc(0);
         }
@@ -180,6 +180,9 @@ export class StreamCryptoContext {
     /** XOR `data` with the key stream at `keyPos` (encrypt == decrypt) */
     public encrypt(keyPos: bigint, data: Buffer): Buffer {
         const stream = this.keyStream(keyPos, data.length);
+        if (stream.length !== data.length) {
+            throw new Error(`Key stream length ${stream.length} != ${data.length}`);
+        }
         const result = Buffer.alloc(data.length);
         for (let i = 0; i < data.length; i++) {
             result[i] = data[i] ^ stream[i];
@@ -192,6 +195,9 @@ export class StreamCryptoContext {
      */
     public mac(keyPos: bigint, message: Buffer): Buffer {
         const key = this.macKeyForGeneration(macKeyGeneration(keyPos));
+        // Spec 7.7: the key position can advance by less than 16, so two
+        // consecutive small packets may share an IV block (and thus a GCM
+        // IV). The spec mandates this; it can't be avoided here.
         const iv = leAdd(this.baseIv, keyPos / BigInt(16));
 
         const cipher = crypto.createCipheriv("aes-128-gcm", key, iv);
@@ -243,9 +249,6 @@ export class StreamKeyExchange {
             secret,
             local: StreamCryptoContext.derive(
                 secret, this.handshakeKey, CLIENT_CONTEXT_INDEX,
-            ),
-            remote: StreamCryptoContext.derive(
-                secret, this.handshakeKey, CONSOLE_CONTEXT_INDEX,
             ),
         };
     }
