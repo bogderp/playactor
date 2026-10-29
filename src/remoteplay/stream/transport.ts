@@ -34,6 +34,9 @@ import { sealCongestion, sealControlPacket, sealFeedback } from "./seal";
 const debug = _debug("playactor:remoteplay:stream:transport");
 
 export const STREAM_PORT = 9296;
+
+/** How far ahead of the expected TSN console DATA is buffered */
+const MAX_REORDER_DISTANCE = 64;
 export const DEFAULT_MTU = 1454;
 
 /** The minimum datagram transport the stream needs; UDP in practice */
@@ -50,13 +53,22 @@ export class UdpDatagramChannel implements IDatagramChannel {
         bind?: { address?: string, port?: number },
     ) {
         const socket = dgram.createSocket("udp4");
-        await new Promise<void>((resolve, reject) => {
-            socket.once("error", reject);
-            socket.bind(bind?.port ?? 0, bind?.address, () => {
-                socket.removeListener("error", reject);
-                resolve();
+        try {
+            await new Promise<void>((resolve, reject) => {
+                socket.once("error", reject);
+                socket.bind(bind?.port ?? 0, bind?.address, () => {
+                    socket.removeListener("error", reject);
+                    resolve();
+                });
             });
-        });
+        } catch (e) {
+            try {
+                socket.close();
+            } catch (closeError) {
+                // already closed
+            }
+            throw e;
+        }
         try {
             socket.setRecvBufferSize(0x19000);
         } catch (e) {
@@ -321,7 +333,13 @@ export class StreamTransport {
 
         this.established = true;
         this.retransmitTimer = setInterval(
-            () => this.retransmit(),
+            () => {
+                try {
+                    this.retransmit();
+                } catch (e) {
+                    this.fail(e instanceof Error ? e : new Error(String(e)));
+                }
+            },
             Math.max(10, Math.floor(this.options.retransmitMillis / 4)),
         );
         debug("transport established");
@@ -430,10 +448,7 @@ export class StreamTransport {
         if (this.closed) return;
         this.closed = true;
 
-        if (this.retransmitTimer) {
-            clearInterval(this.retransmitTimer);
-            this.retransmitTimer = undefined;
-        }
+        this.stopRetransmitTimer();
 
         this.cancelRequest?.();
 
@@ -542,6 +557,13 @@ export class StreamTransport {
         }
     }
 
+    private stopRetransmitTimer() {
+        if (this.retransmitTimer) {
+            clearInterval(this.retransmitTimer);
+            this.retransmitTimer = undefined;
+        }
+    }
+
     private retransmit() {
         const now = this.now();
         for (const entry of this.inFlight) {
@@ -550,6 +572,8 @@ export class StreamTransport {
             }
 
             if (entry.retransmits >= this.options.maxRetransmits) {
+                // report once; the interval must not keep firing onError
+                this.stopRetransmitTimer();
                 this.fail(new Error(`DATA ${entry.tsn.toString(16)} was never acknowledged`));
                 return;
             }
@@ -635,19 +659,23 @@ export class StreamTransport {
 
         const tsn = payload.readUInt32BE(0);
         if (tsn === this.expectedTsn) {
-            this.deliver(payload, flags);
+            // advance before decoding: a malformed payload must not make
+            // the console retransmit it forever
             this.expectedTsn = (this.expectedTsn + 1) >>> 0;
+            this.tryDeliver(payload, flags);
 
             // deliver anything buffered that is now contiguous
             for (;;) {
                 const next = this.outOfOrder.get(this.expectedTsn);
                 if (!next) break;
                 this.outOfOrder.delete(this.expectedTsn);
-                this.deliver(next.slice(1), next[0]);
                 this.expectedTsn = (this.expectedTsn + 1) >>> 0;
+                this.tryDeliver(next.slice(1), next[0]);
             }
         } else if (serialGreater(tsn, this.expectedTsn)) {
-            if (this.outOfOrder.size < this.options.maxOutOfOrder
+            const ahead = (tsn - this.expectedTsn) >>> 0;
+            if (ahead <= MAX_REORDER_DISTANCE
+                && this.outOfOrder.size < this.options.maxOutOfOrder
                 && !this.outOfOrder.has(tsn)) {
                 // keep the flags byte with the payload
                 this.outOfOrder.set(tsn, Buffer.concat([Buffer.from([flags]), payload]));
@@ -658,6 +686,15 @@ export class StreamTransport {
 
         // spec 5.6: ACK after delivery; duplicates are re-acked too
         this.sendDataAck();
+    }
+
+    private tryDeliver(payload: Buffer, flags: number) {
+        try {
+            this.deliver(payload, flags);
+        } catch (e) {
+            debug("dropping undecodable DATA:", e);
+            this.reassembly = undefined;
+        }
     }
 
     private deliver(payload: Buffer, flags: number) {
@@ -765,6 +802,7 @@ export class StreamTransport {
             }
         }
 
+        if (this.closed) throw new TransportClosedError();
         throw new Error(`Timed out waiting for ${name}`);
     }
 }

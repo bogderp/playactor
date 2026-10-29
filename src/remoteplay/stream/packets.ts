@@ -242,7 +242,8 @@ export function encodeDataAckPayload(ack: IDataAck) {
 }
 
 export function decodeDataAckPayload(payload: Buffer): IDataAck {
-    if (payload.length !== 12) {
+    // longer payloads carry gap ack blocks and duplicate TSNs we ignore
+    if (payload.length < 12) {
         throw new Error(`Unexpected DATA_ACK payload length: ${payload.length}`);
     }
     return {

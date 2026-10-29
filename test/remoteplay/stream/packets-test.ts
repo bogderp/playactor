@@ -311,8 +311,21 @@ describe("Remote Play stream packets", () => {
             });
         });
 
-        it("rejects a DATA_ACK payload of the wrong size", () => {
-            expect(() => decodeDataAckPayload(Buffer.alloc(13))).to.throw();
+        it("rejects a DATA_ACK payload that is too short", () => {
+            expect(() => decodeDataAckPayload(Buffer.alloc(11))).to.throw();
+        });
+
+        it("reads the cumulative TSN of a DATA_ACK with trailing gap blocks", () => {
+            const payload = Buffer.concat([
+                encodeDataAckPayload({
+                    cumulativeTsn: 0x55667790,
+                    receiveWindow: 0x19000,
+                    gapAckBlocks: 1,
+                    duplicateTsns: 0,
+                }),
+                Buffer.from([0, 2, 0, 3]),
+            ]);
+            decodeDataAckPayload(payload).cumulativeTsn.should.equal(0x55667790);
         });
 
         it("encodes a continuation DATA fragment without a data type (25 + n)", () => {
