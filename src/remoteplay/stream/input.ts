@@ -58,8 +58,10 @@ export function parseStreamButton(name: string): StreamButton {
         option: StreamButton.OPTIONS,
         create: StreamButton.SHARE,
     };
-    const button = aliases[normalized]
-        ?? (Object.values(StreamButton) as string[]).find(b => b === normalized);
+    // own properties only: "constructor" and "toString" are not buttons
+    const button = Object.prototype.hasOwnProperty.call(aliases, normalized)
+        ? aliases[normalized]
+        : (Object.values(StreamButton) as string[]).find(b => b === normalized);
     if (!button) {
         throw new Error(`Unknown button: ${name}`);
     }
@@ -139,6 +141,32 @@ export const IDLE_CONTROLLER_STATE: IControllerState = {
 };
 
 export const FEEDBACK_STATE_SIZE = 28;
+
+function checkStick(name: string, value: number) {
+    const rounded = Math.round(value);
+    if (!Number.isFinite(rounded) || rounded < -0x8000 || rounded > 0x7FFF) {
+        throw new RangeError(`${name} must be a number from -32768 to 32767, not ${value}`);
+    }
+    return rounded;
+}
+
+/**
+ * Check the stick values (i16) and return the state with them rounded to
+ * integers. Throws RangeError so a bad value never reaches a timer.
+ */
+export function validateControllerState(state: IControllerState): IControllerState {
+    return {
+        ...state,
+        leftStick: {
+            x: checkStick("leftStick.x", state.leftStick.x),
+            y: checkStick("leftStick.y", state.leftStick.y),
+        },
+        rightStick: {
+            x: checkStick("rightStick.x", state.rightStick.x),
+            y: checkStick("rightStick.y", state.rightStick.y),
+        },
+    };
+}
 
 function clamp(value: number, min: number, max: number) {
     return Math.max(min, Math.min(max, value));

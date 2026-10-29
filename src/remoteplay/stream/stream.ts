@@ -17,6 +17,7 @@ import {
     IControllerState,
     IDLE_CONTROLLER_STATE,
     StreamButton,
+    validateControllerState,
 } from "./input";
 import { defaultKeepAliveIntervals, IKeepAliveIntervals, StreamKeepAlive } from "./keepalive";
 import {
@@ -155,6 +156,7 @@ export class RemotePlayStream {
     public readonly closed: Promise<string>;
 
     private state = State.IDLE;
+    private closing = false;
     private readonly keepAlive: StreamKeepAlive;
     private readonly history = new HistoryEventBuffer();
     private controllerState: IControllerState = IDLE_CONTROLLER_STATE;
@@ -190,7 +192,7 @@ export class RemotePlayStream {
             sendCongestion: () => this.sendCongestion(),
             sendFeedbackState: () => this.sendFeedbackState(),
             sendHeartbeat: () => this.sendHeartbeat(),
-        }, this.options.keepAlive);
+        }, this.options.keepAlive, error => this.fatal("keep-alive", error));
 
         this.closed = new Promise(resolve => {
             this.resolveClosed = resolve;
@@ -245,14 +247,26 @@ export class RemotePlayStream {
      */
     public tap(button: StreamButton, holdMillis = this.options.holdMillis) {
         const run = async (): Promise<ITapResult> => {
-            this.assertConnected();
             this.sendButton(button, true);
             const pressedAt = Date.now();
 
-            await delay(holdMillis);
-
-            this.assertConnected();
-            this.sendButton(button, false);
+            // a press is always followed by its release while connected,
+            // even if close() was called during the hold
+            let released = false;
+            try {
+                await delay(holdMillis);
+                this.assertConnected();
+                this.sendButtonEvent(button, false);
+                released = true;
+            } finally {
+                if (!released && this.isConnected) {
+                    try {
+                        this.sendButtonEvent(button, false);
+                    } catch (e) {
+                        debug("unable to release", button, e);
+                    }
+                }
+            }
             const releasedAt = Date.now();
 
             return { button, pressedAt, releasedAt };
@@ -265,12 +279,22 @@ export class RemotePlayStream {
 
     /** Send a single press or release event immediately */
     public sendButton(button: StreamButton, pressed: boolean) {
+        if (this.closing) {
+            throw new Error("Stream is closing");
+        }
+        this.sendButtonEvent(button, pressed);
+    }
+
+    private sendButtonEvent(button: StreamButton, pressed: boolean) {
         this.assertConnected();
         this.sendHistoryEvent(encodeButtonEvent(button, pressed));
     }
 
+    /** Throws RangeError for a stick value that isn't an i16 */
     public setControllerState(state: IControllerState) {
-        this.controllerState = state;
+        // validate first: a bad state would otherwise be re-sent by the
+        // keep-alive timer
+        this.controllerState = validateControllerState(state);
         if (this.isConnected) {
             this.sendFeedbackState();
             this.keepAlive.feedbackStateSent();
@@ -286,6 +310,7 @@ export class RemotePlayStream {
             return this.closed;
         }
 
+        this.closing = true;
         await this.inputQueue;
         const tail = this.tailDone;
         if (tail && this.isConnected) {
@@ -315,20 +340,35 @@ export class RemotePlayStream {
         const wasEstablished = this.transport.isEstablished;
         this.state = State.CLOSED;
 
-        this.keepAlive.stop();
-        this.cancelTail();
+        try {
+            this.keepAlive.stop();
+            this.cancelTail();
 
-        if (sendDisconnect && wasEstablished) {
-            // fire and forget: the reference client doesn't wait for an ACK
-            this.transport.sendDataOnce(StreamChannel.Main, encodeDisconnect());
+            if (sendDisconnect && wasEstablished) {
+                // fire and forget: the reference client doesn't wait for an ACK
+                this.transport.sendDataOnce(StreamChannel.Main, encodeDisconnect());
+            }
+        } catch (e) {
+            debug("error while shutting down:", e);
+        } finally {
+            try {
+                this.transport.close();
+            } catch (e) {
+                debug("error while closing the transport:", e);
+            } finally {
+                const error = new Error(`Stream closed: ${reason}`);
+                this.bang.reject(error);
+                this.connected.reject(error);
+                this.resolveClosed(reason);
+            }
         }
+    }
 
-        this.transport.close();
-
-        const error = new Error(`Stream closed: ${reason}`);
-        this.bang.reject(error);
-        this.connected.reject(error);
-        this.resolveClosed(reason);
+    /** An error in a timer callback: log it and end the stream */
+    private fatal(where: string, e: unknown) {
+        const error = e instanceof Error ? e : new Error(String(e));
+        debug(`${where} error:`, error);
+        this.shutdown(`${where} error: ${error.message}`, false);
     }
 
     private onMessage(message: IReceivedMessage) {
@@ -418,7 +458,9 @@ export class RemotePlayStream {
         this.state = State.CONNECTED;
 
         // reply after the transport has ACK'd the STREAMINFO itself
-        setImmediate(() => this.sendStreamInfoReplies());
+        setImmediate(() => {
+            this.sendStreamInfoReplies().catch(e => this.fatal("STREAMINFO reply", e));
+        });
     }
 
     private async sendStreamInfoReplies() {
@@ -490,12 +532,17 @@ export class RemotePlayStream {
         }
 
         this.tailTimers = offsets.map((offset, index) => setTimeout(() => {
-            if (this.isConnected) {
-                this.sendHistoryPayload(payload, count);
-            }
-            if (index === offsets.length - 1) {
-                this.tailTimers = [];
-                done.resolve();
+            try {
+                if (this.isConnected) {
+                    this.sendHistoryPayload(payload, count);
+                }
+            } catch (e) {
+                this.fatal("history resend", e);
+            } finally {
+                if (index === offsets.length - 1) {
+                    this.tailTimers = [];
+                    done.resolve();
+                }
             }
         }, offset));
     }

@@ -1,6 +1,7 @@
 import * as chai from "chai";
 import chaiAsPromised from "chai-as-promised";
 import crypto from "crypto";
+import sinon from "sinon";
 
 import { DeviceType, IDiscoveredDevice } from "../../../src/discovery/model";
 import { pickCryptoStrategyForDevice } from "../../../src/remoteplay/crypto";
@@ -9,7 +10,7 @@ import {
     StreamCryptoContext,
     StreamKeyExchange,
 } from "../../../src/remoteplay/stream/crypto";
-import { encodeControllerState, StreamButton } from "../../../src/remoteplay/stream/input";
+import { encodeButtonEvent, encodeControllerState, StreamButton } from "../../../src/remoteplay/stream/input";
 import { authKeyStream, formatLaunchSpec } from "../../../src/remoteplay/stream/launch-spec";
 import {
     decodeTakionMessage,
@@ -379,6 +380,8 @@ describe("Remote Play stream session", function streamSessionTests() {
     this.timeout(5000);
 
     afterEach(async () => {
+        sinon.restore();
+
         // don't leave timers running if a test failed half way
         await Promise.all(opened.splice(0).map(s => s.close()));
     });
@@ -551,6 +554,100 @@ describe("Remote Play stream session", function streamSessionTests() {
         });
         await stream.start().should.be.rejectedWith(/INIT_ACK/);
         channel.closed.should.be.true;
+    });
+
+    it("rejects a bad stick value without crashing from a timer (B1)", async () => {
+        const fake = new FakeConsole();
+        const stream = openFakeStream(fake);
+        await stream.start();
+
+        const idle = encodeControllerState();
+        for (const bad of [40000, -32769, NaN, Infinity]) {
+            expect(() => stream.setControllerState({
+                gyro: { x: 0, y: 0, z: 0 },
+                accel: { x: 0, y: 1, z: 0 },
+                orientation: {
+                    x: 0, y: 0, z: 0, w: 1,
+                },
+                leftStick: { x: bad, y: 0 },
+                rightStick: { x: 0, y: 0 },
+            })).to.throw(RangeError);
+        }
+
+        // the keep-alive timer keeps sending the last good state
+        const before = fake.sent.length;
+        await delay(100);
+        stream.isConnected.should.be.true;
+        const states = fake.sent.slice(before).filter(s => s.feedback && s.baseType === BaseType.FeedbackState);
+        states.length.should.be.greaterThan(0);
+        states[0].feedback!.payload.should.deep.equal(idle);
+
+        // valid values are rounded
+        stream.setControllerState({
+            gyro: { x: 0, y: 0, z: 0 },
+            accel: { x: 0, y: 1, z: 0 },
+            orientation: {
+                x: 0, y: 0, z: 0, w: 1,
+            },
+            leftStick: { x: 100.4, y: -32768 },
+            rightStick: { x: 0, y: 32767 },
+        });
+        await delay(30);
+        stream.isConnected.should.be.true;
+    });
+
+    it("shuts down instead of throwing when a timer fails (R1)", async () => {
+        const fake = new FakeConsole();
+        const stream = openFakeStream(fake);
+        await stream.start();
+
+        sinon.stub(fake.channel, "send").throws(new Error("boom"));
+        (await stream.closed).should.contain("boom");
+        stream.isConnected.should.be.false;
+        fake.channel.closed.should.be.true;
+    });
+
+    it("still sends the release when close() is called during a hold (R4)", async () => {
+        const fake = new FakeConsole();
+        const stream = openFakeStream(fake);
+        await stream.start();
+
+        const tap = stream.tap(StreamButton.CROSS, 80);
+        await delay(20);
+        const closing = stream.close();
+
+        expect(() => stream.sendButton(StreamButton.SQUARE, true)).to.throw(/closing/);
+        await stream.tap(StreamButton.SQUARE, 10).should.be.rejectedWith(/closing/);
+
+        await tap;
+        await closing;
+        await delay(10);
+
+        const payloads = fake.sent
+            .filter(s => s.baseType === BaseType.FeedbackHistory)
+            .map(s => s.feedback!.payload.toString("hex"));
+        payloads.some(p => p.startsWith(encodeButtonEvent(StreamButton.CROSS, false)
+            .toString("hex"))).should.be.true;
+        payloads.some(p => p.includes(encodeButtonEvent(StreamButton.SQUARE, true)
+            .toString("hex"))).should.be.false;
+    });
+
+    it("closes the transport even if sending DISCONNECT throws (R6)", async () => {
+        const fake = new FakeConsole();
+        const stream = openFakeStream(fake, {
+            ...fastOptions,
+            keepAlive: {
+                congestionMillis: 60000,
+                feedbackStateMillis: 60000,
+                heartbeatMillis: 60000,
+            },
+        });
+        await stream.start();
+
+        sinon.stub(fake.channel, "send").throws(new Error("send failed"));
+        await stream.close();
+        (await stream.closed).should.equal("closed by client");
+        fake.channel.closed.should.be.true;
     });
 
     it("rejects a console public key that is not on the curve", async () => {

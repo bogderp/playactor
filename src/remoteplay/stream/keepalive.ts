@@ -30,12 +30,24 @@ export class StreamKeepAlive {
     constructor(
         private readonly target: IKeepAliveTarget,
         private readonly intervals: IKeepAliveIntervals = defaultKeepAliveIntervals,
+        private readonly onError: (error: Error) => void = () => { /* ignored */ },
     ) {}
+
+    /** Run a timer callback; a throw must never escape into the event loop */
+    private guard(callback: () => void) {
+        return () => {
+            try {
+                callback();
+            } catch (e) {
+                this.onError(e instanceof Error ? e : new Error(String(e)));
+            }
+        };
+    }
 
     public startCongestion() {
         if (this.congestionTimer) return;
         this.congestionTimer = setInterval(
-            () => this.target.sendCongestion(),
+            this.guard(() => this.target.sendCongestion()),
             this.intervals.congestionMillis,
         );
     }
@@ -44,14 +56,14 @@ export class StreamKeepAlive {
         if (!this.feedbackTimer) {
             this.target.sendFeedbackState();
             this.feedbackTimer = setInterval(
-                () => this.target.sendFeedbackState(),
+                this.guard(() => this.target.sendFeedbackState()),
                 this.intervals.feedbackStateMillis,
             );
         }
 
         if (!this.heartbeatTimer) {
             this.heartbeatTimer = setInterval(
-                () => this.target.sendHeartbeat(),
+                this.guard(() => this.target.sendHeartbeat()),
                 this.intervals.heartbeatMillis,
             );
         }
@@ -62,7 +74,7 @@ export class StreamKeepAlive {
         if (!this.feedbackTimer) return;
         clearInterval(this.feedbackTimer);
         this.feedbackTimer = setInterval(
-            () => this.target.sendFeedbackState(),
+            this.guard(() => this.target.sendFeedbackState()),
             this.intervals.feedbackStateMillis,
         );
     }
