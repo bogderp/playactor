@@ -21,7 +21,7 @@ export interface IStreamSessionOptions {
     /** How long to wait for ctrl message 0x33 after login */
     sessionIdTimeoutMillis?: number;
 
-    /** Send the optional ctrl messages of spec 2.4 */
+    /** Send the optional ctrl messages of spec 2.4 (default: false) */
     sendOptionalCtrlMessages?: boolean;
 
     /** Progress callbacks, eg: for timing output */
@@ -96,7 +96,7 @@ export async function openStreamSession(
             sessionId = fallbackSessionId();
         }
 
-        if (options.sendOptionalCtrlMessages ?? true) {
+        if (options.sendOptionalCtrlMessages ?? false) {
             await sendOptionalCtrlMessages(socket);
         }
 

@@ -38,11 +38,11 @@ export class PressOptions extends DeviceOptions {
     public controller = "ds4";
 
     @option({
-        name: "no-mic",
-        description: "Don't send the microphone messages",
+        name: "mic",
+        description: "Also send the optional microphone and display messages",
         toggle: true,
     })
-    public noMic = false;
+    public mic = false;
 }
 
 const controllerTypes: Record<string, ControllerType> = {
@@ -124,9 +124,9 @@ export default class extends Command {
             stream: {
                 holdMillis: options.holdMillis,
                 controllerType,
-                sendMicStreamInfo: !options.noMic,
+                sendMicStreamInfo: options.mic,
             },
-            sendOptionalCtrlMessages: !options.noMic,
+            sendOptionalCtrlMessages: options.mic,
             onLoggedIn: () => options.logResult(`${elapsed()}  login done`),
             onSessionId: fallback => {
                 if (fallback) {

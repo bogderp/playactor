@@ -434,10 +434,11 @@ describe("Remote Play stream session", function streamSessionTests() {
         const replies = fake.sent.filter(s => s.message
             && s.message.type !== PayloadType.BIG
             && s.message.type !== PayloadType.HEARTBEAT);
+        // the microphone STREAMINFO is off by default
         replies.slice(0, 3).map(s => [s.message!.type, s.channel]).should.deep.equal([
             [PayloadType.STREAMINFOACK, 9],
             [PayloadType.CONTROLLERCONNECTION, 1],
-            [PayloadType.STREAMINFO, 1],
+            [PayloadType.DISCONNECT, 1],
         ]);
         fake.sent.indexOf(replies[0]).should.be.greaterThan(ackOfStreamInfo);
         replies[replies.length - 1].message!.type.should.equal(PayloadType.DISCONNECT);

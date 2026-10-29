@@ -64,7 +64,11 @@ export interface IStreamOptions {
     /** Controller announced in CONTROLLERCONNECTION */
     controllerType: ControllerType;
 
-    /** Send the client microphone STREAMINFO (spec 6.5, unverified) */
+    /**
+     * Send the client microphone STREAMINFO (spec 6.5, unverified). Off by
+     * default: the console works without it, and it can show an extra
+     * input device notification
+     */
     sendMicStreamInfo: boolean;
 }
 
@@ -78,7 +82,7 @@ export const defaultStreamOptions: IStreamOptions = {
     tailResendMillis: [20, 50, 100, 200],
     waitForControllerAck: true,
     controllerType: ControllerType.DUALSHOCK4,
-    sendMicStreamInfo: true,
+    sendMicStreamInfo: false,
 };
 
 export interface IStreamParams {
